@@ -1,0 +1,28 @@
+# Binary
+jeeves
+/dist/
+
+# macOS
+.DS_Store
+
+# SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Config with secrets
+config.toml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Go
+*.test
+*.out
+/vendor/
+
+# Claude
+.claude/settings.local.json
