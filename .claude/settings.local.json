@@ -4,7 +4,10 @@
       "Bash(go get:*)",
       "Bash(go build:*)",
       "Bash(./jeeves:*)",
-      "Bash(claudit add:*)"
+      "Bash(claudit add:*)",
+      "Bash(claudit recall:*)",
+      "Bash(claudit map:*)",
+      "Bash(go version:*)"
     ]
   }
 }

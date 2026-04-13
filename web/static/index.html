@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jeeves</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <nav id="nav">
+    <div class="nav-brand">Jeeves</div>
+    <div class="nav-tabs">
+      <button class="nav-tab active" data-tab="overview">Overview</button>
+      <button class="nav-tab" data-tab="research">Research</button>
+      <button class="nav-tab" data-tab="knowledge">Knowledge</button>
+      <button class="nav-tab" data-tab="graph">Graph</button>
+      <button class="nav-tab" data-tab="topics">Topics</button>
+      <button class="nav-tab" data-tab="trusted">Sources</button>
+      <button class="nav-tab" data-tab="history">History</button>
+    </div>
+  </nav>
+
+  <main id="app"></main>
+
+  <script src="/vendor/marked.min.js"></script>
+  <script src="/vendor/d3.min.js"></script>
+  <script src="/app.js"></script>
+  <script src="/components/overview.js"></script>
+  <script src="/components/research.js"></script>
+  <script src="/components/knowledge.js"></script>
+  <script src="/components/graph.js"></script>
+  <script src="/components/topics.js"></script>
+  <script src="/components/trusted-sources.js"></script>
+  <script src="/components/history.js"></script>
+  <script>App.init();</script>
+</body>
+</html>

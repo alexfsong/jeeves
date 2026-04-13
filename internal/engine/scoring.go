@@ -2,9 +2,11 @@ package engine
 
 import (
 	"math"
+	"net/url"
 	"strings"
 
 	"github.com/alexfsong/jeeves/internal/source"
+	"github.com/alexfsong/jeeves/internal/store"
 )
 
 // ScoreTFIDF scores results based on term frequency in the query.
@@ -66,6 +68,45 @@ func RankResults(results []source.Result) []source.Result {
 	}
 
 	return deduped
+}
+
+// ApplyTrustBoost adjusts result scores based on trusted source domain matches.
+// Per-topic sources override global ones for the same domain.
+func ApplyTrustBoost(results []source.Result, trusted []store.TrustedSource) {
+	if len(trusted) == 0 {
+		return
+	}
+
+	// Build domain → trust level map. Topic-specific entries are appended after
+	// global ones, so they naturally override in the map.
+	trustMap := make(map[string]float64)
+	for _, ts := range trusted {
+		trustMap[ts.Domain] = ts.TrustLevel
+	}
+
+	for i := range results {
+		domain := extractDomain(results[i].URL)
+		if domain == "" {
+			continue
+		}
+		if boost, ok := trustMap[domain]; ok {
+			results[i].Score = clamp(results[i].Score*boost, 0, 1)
+		}
+	}
+}
+
+func extractDomain(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	host := u.Hostname()
+	// Strip www. prefix for consistent matching
+	host = strings.TrimPrefix(host, "www.")
+	return host
 }
 
 func tokenize(s string) []string {

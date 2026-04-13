@@ -103,6 +103,23 @@ func (s *Store) migrate() error {
 			result_count INTEGER DEFAULT 0,
 			timestamp DATETIME DEFAULT (datetime('now'))
 		)`,
+		`CREATE TABLE IF NOT EXISTS topic_links (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			from_id INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+			to_id INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+			kind TEXT NOT NULL CHECK(kind IN ('branched_from','prerequisite','related')),
+			created_at DATETIME DEFAULT (datetime('now')),
+			UNIQUE(from_id, to_id, kind)
+		)`,
+		`CREATE TABLE IF NOT EXISTS trusted_sources (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			domain TEXT NOT NULL,
+			trust_level REAL NOT NULL DEFAULT 1.0 CHECK(trust_level BETWEEN 0.0 AND 2.0),
+			topic_id INTEGER REFERENCES topics(id) ON DELETE CASCADE,
+			notes TEXT DEFAULT '',
+			created_at DATETIME DEFAULT (datetime('now')),
+			UNIQUE(domain, topic_id)
+		)`,
 	}
 
 	for _, m := range migrations {

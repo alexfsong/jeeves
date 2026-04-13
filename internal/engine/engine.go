@@ -77,6 +77,15 @@ func (e *Engine) Research(ctx context.Context, query string, res resolution.Leve
 
 	// Score and rank
 	ScoreTFIDF(allResults, query)
+
+	// Apply trusted source boosts
+	if e.store != nil {
+		trusted, err := e.store.ListTrustedSources(topicID)
+		if err == nil && len(trusted) > 0 {
+			ApplyTrustBoost(allResults, trusted)
+		}
+	}
+
 	allResults = RankResults(allResults)
 
 	// Merge with local results
