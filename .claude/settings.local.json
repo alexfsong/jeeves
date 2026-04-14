@@ -7,7 +7,11 @@
       "Bash(claudit add:*)",
       "Bash(claudit recall:*)",
       "Bash(claudit map:*)",
-      "Bash(go version:*)"
+      "Bash(go version:*)",
+      "Read(//Users/alexandersong/go/pkg/mod/github.com/anthropics/**)",
+      "Read(//Users/alexandersong/.claude/plans/**)",
+      "Bash(mkdir -p /Users/alexandersong/.claude/plans)",
+      "Bash(/tmp/jeeves_test --help)"
     ]
   }
 }

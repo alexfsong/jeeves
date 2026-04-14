@@ -118,3 +118,9 @@ func (s *Store) TopicKnowledgeCount(topicID int64) (int, error) {
 	err := s.db.QueryRow("SELECT COUNT(*) FROM knowledge WHERE topic_id = ?", topicID).Scan(&count)
 	return count, err
 }
+
+// FindTopicByName finds a topic by its slugified name.
+func (s *Store) FindTopicByName(name string) (*Topic, error) {
+	slug := slugify(name)
+	return s.GetTopicBySlug(slug)
+}

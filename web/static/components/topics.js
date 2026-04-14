@@ -38,9 +38,26 @@ const Topics = {
       const actions = U.el('div', { className: 'flex gap-8' });
       actions.appendChild(U.el('button', {
         className: 'btn btn-sm',
+        textContent: 'Research',
+        onClick: () => {
+          App.navigate('research');
+          Research.prefill('', 'detailed');
+          const topicSel = document.getElementById('research-topic');
+          if (topicSel) topicSel.value = t.slug;
+        },
+      }));
+      actions.appendChild(U.el('button', {
+        className: 'btn btn-sm',
         textContent: 'Branch',
         onClick: () => this.branchTopic(t.slug),
       }));
+      if (t.knowledge_count > 0) {
+        actions.appendChild(U.el('button', {
+          className: 'btn btn-sm btn-ghost',
+          textContent: 'Gap Analysis',
+          onClick: (e) => this.showGapAnalysis(t.slug, e.target, card),
+        }));
+      }
       actions.appendChild(U.el('button', {
         className: 'btn btn-sm btn-ghost',
         textContent: 'View Knowledge',
@@ -188,6 +205,36 @@ const Topics = {
     await API.post('/api/topics', { name, description: desc });
     await App.loadTopics();
     App.navigate('topics');
+  },
+
+  async showGapAnalysis(slug, btn, card) {
+    btn.textContent = 'Analyzing...';
+    btn.disabled = true;
+
+    const data = await API.get(`/api/topics/${slug}/gaps`);
+    btn.textContent = 'Gap Analysis';
+    btn.disabled = false;
+
+    if (!data?.analysis) return;
+
+    // Remove existing analysis panel
+    const existing = card.querySelector('.gap-analysis');
+    if (existing) { existing.remove(); return; }
+
+    const panel = U.el('div', { className: 'gap-analysis mt-8' });
+    panel.appendChild(U.el('div', {
+      className: 'card-header flex-between',
+      style: 'font-size:13px',
+    }, [
+      U.el('span', { textContent: 'Gap Analysis' }),
+      U.el('button', {
+        className: 'btn btn-sm btn-ghost',
+        textContent: 'Close',
+        onClick: () => panel.remove(),
+      }),
+    ]));
+    panel.appendChild(U.el('div', { className: 'md-content text-sm', innerHTML: U.md(data.analysis) }));
+    card.appendChild(panel);
   },
 
   async deleteTopic(slug, container) {

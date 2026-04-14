@@ -1,100 +1,241 @@
 const Research = {
   prefillQuery: '',
-  prefillResolution: 'brief',
+  prefillResolution: '',
+  lastResult: null,
+  researchHistory: [], // stack of queries in this session
 
   render(container) {
-    // Input bar
-    const form = U.el('div', { className: 'card' });
-    form.appendChild(U.el('div', { className: 'card-header', textContent: 'Research' }));
+    // Determine best available resolution
+    const bestRes = this.bestResolution();
 
-    const inputRow = U.el('div', { className: 'research-input' });
+    // Search bar — prominent, centered
+    const hero = U.el('div', { className: 'research-hero' });
+    const form = U.el('div', { className: 'card research-card' });
+
     const queryInput = U.el('input', {
       type: 'text',
-      placeholder: 'What would you like to research, sir?',
+      placeholder: 'What would you like to research?',
       value: this.prefillQuery,
       id: 'research-query',
+      className: 'research-query-input',
     });
     queryInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this.runResearch();
+      if (e.key === 'Enter' && !e.shiftKey) this.startResearch();
     });
+    form.appendChild(queryInput);
 
-    const resSel = U.resolutionSelector(this.prefillResolution);
-    resSel.id = 'research-resolution';
+    // Controls row — resolution + options
+    const controls = U.el('div', { className: 'research-controls' });
 
+    // Resolution selector with descriptions
+    const resGroup = U.el('div', { className: 'resolution-group' });
+    const resolutions = [
+      { value: 'glance', label: 'Glance', desc: 'Quick snippets' },
+      { value: 'brief', label: 'Brief', desc: 'Summarized' },
+      { value: 'detailed', label: 'Detailed', desc: 'Full synthesis' },
+      { value: 'full', label: 'Deep', desc: 'Exhaustive' },
+    ];
+
+    for (const r of resolutions) {
+      const selected = (this.prefillResolution || bestRes) === r.value;
+      const btn = U.el('button', {
+        className: 'res-btn' + (selected ? ' res-btn-active' : ''),
+        'data-res': r.value,
+        onClick: () => this.selectResolution(r.value),
+      });
+      btn.appendChild(U.el('span', { className: 'res-btn-label', textContent: r.label }));
+      btn.appendChild(U.el('span', { className: 'res-btn-desc', textContent: r.desc }));
+      resGroup.appendChild(btn);
+    }
+    controls.appendChild(resGroup);
+
+    const rightControls = U.el('div', { className: 'flex gap-8' });
     const topicSel = U.topicSelector('');
     topicSel.id = 'research-topic';
+    rightControls.appendChild(topicSel);
 
-    const btn = U.el('button', { className: 'btn', textContent: 'Research', onClick: () => this.runResearch() });
+    const goBtn = U.el('button', {
+      className: 'btn research-go-btn',
+      textContent: 'Research',
+      onClick: () => this.startResearch(),
+    });
+    rightControls.appendChild(goBtn);
+    controls.appendChild(rightControls);
 
-    inputRow.appendChild(queryInput);
-    inputRow.appendChild(resSel);
-    inputRow.appendChild(topicSel);
-    inputRow.appendChild(btn);
-    form.appendChild(inputRow);
-    container.appendChild(form);
+    form.appendChild(controls);
+    hero.appendChild(form);
+    container.appendChild(hero);
+
+    // Research trail — show breadcrumbs of this session's queries
+    if (this.researchHistory.length > 0) {
+      const trail = U.el('div', { className: 'research-trail card' });
+      trail.appendChild(U.el('div', { className: 'text-sm text-slate mb-8', textContent: 'Research trail' }));
+      const crumbs = U.el('div', { className: 'breadcrumbs' });
+      for (let i = 0; i < this.researchHistory.length; i++) {
+        if (i > 0) crumbs.appendChild(U.el('span', { className: 'sep', textContent: ' \u2192 ' }));
+        const q = this.researchHistory[i];
+        const link = U.el('a', {
+          textContent: q.length > 40 ? q.slice(0, 40) + '...' : q,
+          onClick: () => this.prefill(q),
+        });
+        crumbs.appendChild(link);
+      }
+      trail.appendChild(crumbs);
+      container.appendChild(trail);
+    }
 
     // Results area
     const results = U.el('div', { id: 'research-results' });
     container.appendChild(results);
 
-    // Focus input
+    // If we have a last result, re-render it
+    if (this.lastResult) {
+      this.renderResult(results, this.lastResult);
+    }
+
     setTimeout(() => queryInput.focus(), 50);
+  },
+
+  bestResolution() {
+    const s = App.systemStatus;
+    if (!s) return 'glance';
+    if (s.cloud_available && s.brave_configured) return 'detailed';
+    if (s.local_available && s.brave_configured) return 'brief';
+    return 'glance';
+  },
+
+  selectResolution(value) {
+    this.prefillResolution = value;
+    document.querySelectorAll('.res-btn').forEach(btn => {
+      btn.classList.toggle('res-btn-active', btn.dataset.res === value);
+    });
   },
 
   prefill(query, resolution) {
     this.prefillQuery = query;
-    this.prefillResolution = resolution || 'brief';
+    if (resolution) this.prefillResolution = resolution;
     const q = document.getElementById('research-query');
-    const r = document.getElementById('research-resolution');
-    if (q) q.value = query;
-    if (r) r.value = this.prefillResolution;
+    if (q) {
+      q.value = query;
+      q.focus();
+    }
   },
 
-  async runResearch() {
+  async startResearch() {
     const query = document.getElementById('research-query')?.value?.trim();
-    const resolution = document.getElementById('research-resolution')?.value || 'brief';
+    const resolution = this.prefillResolution || this.bestResolution();
     const topicSlug = document.getElementById('research-topic')?.value || '';
 
     if (!query) return;
 
+    // Track in history
+    if (!this.researchHistory.includes(query)) {
+      this.researchHistory.push(query);
+    }
+
     const resultsEl = document.getElementById('research-results');
     if (!resultsEl) return;
 
-    resultsEl.innerHTML = '<div class="sse-status">Searching...</div>';
+    // Show progress
+    resultsEl.innerHTML = '';
+    const progressCard = U.el('div', { className: 'card research-progress' });
+    const spinner = U.el('div', { className: 'research-spinner' });
+    spinner.appendChild(U.el('div', { className: 'spinner-ring' }));
+    spinner.appendChild(U.el('div', { id: 'research-status-text', className: 'text-slate', textContent: 'Searching...' }));
+    spinner.appendChild(U.el('div', { id: 'research-stage-pill', className: 'stage-pill', textContent: '' }));
+    progressCard.appendChild(spinner);
+    resultsEl.appendChild(progressCard);
 
     try {
-      const response = await fetch('/api/research', {
+      // Check prior knowledge first
+      const prior = await API.get(`/api/knowledge/prior?q=${encodeURIComponent(query)}`);
+      if (prior && prior.count > 0) {
+        const priorCard = U.el('div', { className: 'card prior-knowledge-card' });
+        priorCard.appendChild(U.el('div', { className: 'card-header', textContent: `You already have ${prior.count} related entries` }));
+        const list = U.el('div', { className: 'text-sm' });
+        for (const e of prior.entries.slice(0, 5)) {
+          const item = U.el('div', { className: 'flex-between mb-8' });
+          item.appendChild(U.el('span', { innerHTML: `${U.badge(e.type)} <span class="text-cream">${e.title}</span>` }));
+          item.appendChild(U.el('a', {
+            className: 'text-gold text-sm',
+            textContent: 'view',
+            style: 'cursor:pointer',
+            onClick: () => { App.navigate('knowledge'); Knowledge.showDetail(e.id); },
+          }));
+          list.appendChild(item);
+        }
+        priorCard.appendChild(list);
+        resultsEl.insertBefore(priorCard, resultsEl.firstChild.nextSibling || null);
+      }
+
+      // Use auto-topic endpoint if no topic selected and resolution is detailed+
+      const useAutoTopic = !topicSlug && (resolution === 'detailed' || resolution === 'full');
+      const endpoint = useAutoTopic ? '/api/research/with-topic' : '/api/research';
+      const payload = useAutoTopic
+        ? { query, resolution }
+        : { query, resolution, topic_slug: topicSlug };
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, resolution, topic_slug: topicSlug }),
+        body: JSON.stringify(payload),
       });
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
 
+      // Parse SSE event blocks. Each event is "event: NAME\ndata: PAYLOAD\n\n".
+      const handleEvent = (event, data) => {
+        if (event === 'status') {
+          const statusEl = document.getElementById('research-status-text');
+          if (statusEl) statusEl.textContent = data;
+        } else if (event === 'progress') {
+          try {
+            const ev = JSON.parse(data);
+            const pill = document.getElementById('research-stage-pill');
+            if (pill) {
+              let label = ev.stage;
+              if (ev.detail) label += ` · ${ev.detail}`;
+              if (ev.stage === 'verify' && ev.detail === 'complete') {
+                label = `verified · ${ev.tool_calls || 0} checks · ${ev.new_sources || 0} new`;
+              }
+              pill.textContent = label;
+            }
+          } catch {}
+        } else if (event === 'result') {
+          try {
+            const parsed = JSON.parse(data);
+            this.lastResult = parsed;
+            this.renderResult(resultsEl, parsed);
+          } catch {}
+        } else if (event === 'error') {
+          resultsEl.innerHTML = `<div class="card"><div class="text-error">Research failed: ${data}</div></div>`;
+        }
+      };
+
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          if (line.startsWith('event: status')) {
-            const dataLine = lines[lines.indexOf(line) + 1];
-            if (dataLine?.startsWith('data: ')) {
-              const statusEl = resultsEl.querySelector('.sse-status');
-              if (statusEl) statusEl.textContent = dataLine.slice(6);
+        // Split on blank lines to extract full event blocks.
+        let sep;
+        while ((sep = buffer.indexOf('\n\n')) !== -1) {
+          const block = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+
+          let eventName = 'message';
+          let dataParts = [];
+          for (const line of block.split('\n')) {
+            if (line.startsWith('event: ')) {
+              eventName = line.slice(7).trim();
+            } else if (line.startsWith('data: ')) {
+              dataParts.push(line.slice(6));
             }
           }
-          if (line.startsWith('data: ') && line.length > 10) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              this.renderResult(resultsEl, data);
-            } catch {}
-          }
+          handleEvent(eventName, dataParts.join('\n'));
         }
       }
     } catch (e) {
@@ -105,42 +246,120 @@ const Research = {
   renderResult(container, result) {
     container.innerHTML = '';
 
-    // Synthesis
+    // Warnings at the top (but styled less alarming)
+    if (result.warnings?.length) {
+      const warnCard = U.el('div', { className: 'card research-warnings' });
+      for (const w of result.warnings) {
+        warnCard.appendChild(U.el('div', { className: 'text-slate text-sm', textContent: w }));
+      }
+      container.appendChild(warnCard);
+    }
+
+    // Synthesis — the main event
     if (result.synthesis) {
-      const synthCard = U.el('div', { className: 'card' });
-      synthCard.appendChild(U.el('div', { className: 'card-header', textContent: 'Synthesis' }));
+      const synthCard = U.el('div', { className: 'card synthesis-card' });
+      const header = U.el('div', { className: 'card-header flex-between' });
+      header.appendChild(U.el('span', { textContent: 'Synthesis' }));
+
+      // Deepen button for non-detailed results
+      if (result.resolution === 'glance' || result.resolution === 'brief') {
+        const deepenBtn = U.el('button', {
+          className: 'btn btn-sm',
+          textContent: 'Go deeper',
+          onClick: () => {
+            const nextRes = result.resolution === 'glance' ? 'brief' : 'detailed';
+            this.selectResolution(nextRes);
+            this.startResearch();
+          },
+        });
+        header.appendChild(deepenBtn);
+      }
+
+      synthCard.appendChild(header);
+
+      if (result.verification && !result.verification.skipped) {
+        const v = result.verification;
+        const badge = U.el('div', {
+          className: 'verified-badge',
+          textContent: `\u2713 Verified · ${v.tool_calls || 0} checks · ${v.new_sources || 0} new sources`,
+        });
+        synthCard.appendChild(badge);
+      }
+
       synthCard.appendChild(U.el('div', { className: 'md-content', innerHTML: U.md(result.synthesis) }));
       container.appendChild(synthCard);
+    } else if (!result.warnings?.length) {
+      // No synthesis and no warnings — show snippets nicely
+      const noSynthCard = U.el('div', { className: 'card' });
+      noSynthCard.appendChild(U.el('div', { className: 'card-header flex-between' }, [
+        U.el('span', { textContent: 'Search Results' }),
+        U.el('button', {
+          className: 'btn btn-sm',
+          textContent: 'Synthesize with AI',
+          onClick: () => {
+            this.selectResolution('detailed');
+            this.startResearch();
+          },
+        }),
+      ]));
+      container.appendChild(noSynthCard);
     }
 
-    // Warnings
-    if (result.warnings?.length) {
-      for (const w of result.warnings) {
-        container.appendChild(U.el('div', { className: 'card text-slate', textContent: w }));
+    // Persisted indicator
+    if (result.persisted > 0) {
+      const persistCard = U.el('div', { className: 'card persist-indicator' });
+      const msg = U.el('div', { className: 'flex gap-8', style: 'align-items:center' });
+      msg.appendChild(U.el('span', { className: 'text-success', textContent: `\u2713 ${result.persisted} items saved to knowledge base` }));
+      if (result.topic_slug) {
+        msg.appendChild(U.el('a', {
+          className: 'text-gold text-sm',
+          textContent: `View topic: ${result.topic_name || result.topic_slug}`,
+          style: 'cursor:pointer',
+          onClick: () => { App.navigate('knowledge'); Knowledge.filterByTopic(result.topic_slug); },
+        }));
       }
+      persistCard.appendChild(msg);
+      container.appendChild(persistCard);
     }
 
-    // Sub-queries
-    if (result.sub_queries?.length > 1) {
-      const sqCard = U.el('div', { className: 'card' });
-      sqCard.appendChild(U.el('div', { className: 'card-header', textContent: 'Sub-queries' }));
-      const list = U.el('ul', { className: 'text-slate text-sm', style: 'padding-left:16px' });
-      for (const sq of result.sub_queries) {
-        list.appendChild(U.el('li', { textContent: sq }));
-      }
-      sqCard.appendChild(list);
-      container.appendChild(sqCard);
+    // Follow-up suggestions — the key UX differentiator
+    if (result.synthesis) {
+      const followUpCard = U.el('div', { className: 'card follow-up-card', id: 'follow-ups' });
+      followUpCard.appendChild(U.el('div', { className: 'card-header', textContent: 'Dig deeper' }));
+      followUpCard.appendChild(U.el('div', {
+        className: 'text-slate text-sm',
+        id: 'follow-up-loading',
+        textContent: 'Generating follow-up questions...',
+      }));
+      container.appendChild(followUpCard);
+      this.loadFollowUps(result.query, result.synthesis, result.topic_slug);
     }
 
-    // Sources
+    // Sources — collapsible
     if (result.results?.length) {
       const srcCard = U.el('div', { className: 'card' });
-      srcCard.appendChild(U.el('div', { className: 'card-header', textContent: `Sources (${result.results.length})` }));
+      const srcHeader = U.el('div', {
+        className: 'card-header sources-toggle',
+        style: 'cursor:pointer',
+        onClick: () => {
+          const list = document.getElementById('sources-list');
+          if (list) list.classList.toggle('hidden');
+        },
+      });
+      srcHeader.appendChild(U.el('span', { textContent: `Sources (${result.results.length})` }));
+      srcHeader.appendChild(U.el('span', { className: 'text-slate text-sm', textContent: 'click to expand' }));
+      srcCard.appendChild(srcHeader);
 
+      const sourcesList = U.el('div', { id: 'sources-list', className: result.synthesis ? 'hidden' : '' });
       for (const r of result.results.slice(0, 20)) {
-        const item = U.el('div', { className: 'mb-16', style: 'padding-bottom:12px;border-bottom:1px solid var(--border)' });
+        const item = U.el('div', { className: 'source-item' });
         const header = U.el('div', { className: 'flex-between' });
-        header.appendChild(U.el('div', { className: 'text-cream', textContent: r.title || 'Untitled' }));
+        const titleRow = U.el('div', { className: 'flex gap-8', style: 'align-items:center' });
+        titleRow.appendChild(U.el('div', { className: 'text-cream', textContent: r.title || 'Untitled' }));
+        if (r.verified) {
+          titleRow.appendChild(U.el('span', { className: 'verified-chip', textContent: 'Verified' }));
+        }
+        header.appendChild(titleRow);
         header.appendChild(U.el('span', { innerHTML: U.scoreBar(r.score || 0) }));
         item.appendChild(header);
 
@@ -149,14 +368,20 @@ const Research = {
           urlRow.appendChild(U.el('a', { className: 'url', href: r.url, target: '_blank', textContent: r.url }));
           const trustBtn = U.el('button', {
             className: 'btn btn-sm btn-ghost',
-            textContent: 'Trust source',
+            textContent: 'Trust',
             onClick: async (e) => {
               e.stopPropagation();
               const domain = U.extractDomain(r.url);
               if (domain) {
-                await API.post('/api/trusted-sources', { domain, trust_level: 1.5, notes: `Trusted from research: ${result.query}` });
+                await API.post('/api/trusted-sources', {
+                  domain,
+                  trust_level: 1.5,
+                  topic_slug: result.topic_slug || '',
+                  notes: `Trusted from research: ${result.query}`,
+                });
                 e.target.textContent = 'Trusted';
                 e.target.disabled = true;
+                e.target.className = 'btn btn-sm btn-ghost text-success';
               }
             },
           });
@@ -165,18 +390,67 @@ const Research = {
         }
 
         if (r.snippet) {
-          const snippet = r.snippet.length > 300 ? r.snippet.slice(0, 300) + '...' : r.snippet;
+          const snippet = r.snippet.length > 200 ? r.snippet.slice(0, 200) + '...' : r.snippet;
           item.appendChild(U.el('div', { className: 'text-slate text-sm mt-8', textContent: snippet }));
         }
-
-        srcCard.appendChild(item);
+        sourcesList.appendChild(item);
       }
+      srcCard.appendChild(sourcesList);
       container.appendChild(srcCard);
     }
 
-    // Persisted count
-    if (result.persisted > 0) {
-      container.appendChild(U.el('div', { className: 'card text-success', textContent: `Very good, sir. ${result.persisted} items persisted to your knowledge base.` }));
+    // Sub-queries (collapsed by default)
+    if (result.sub_queries?.length > 1) {
+      const sqCard = U.el('div', { className: 'card' });
+      sqCard.appendChild(U.el('div', {
+        className: 'card-header text-slate text-sm',
+        style: 'cursor:pointer',
+        textContent: `Sub-queries (${result.sub_queries.length})`,
+        onClick: (e) => {
+          const list = e.target.nextElementSibling;
+          if (list) list.classList.toggle('hidden');
+        },
+      }));
+      const list = U.el('ul', { className: 'text-slate text-sm hidden', style: 'padding-left:16px' });
+      for (const sq of result.sub_queries) {
+        list.appendChild(U.el('li', { textContent: sq }));
+      }
+      sqCard.appendChild(list);
+      container.appendChild(sqCard);
     }
+  },
+
+  async loadFollowUps(query, synthesis, topicSlug) {
+    const data = await API.post('/api/research/follow-ups', {
+      query,
+      synthesis: synthesis.slice(0, 3000), // Don't send too much
+      topic_slug: topicSlug || '',
+    });
+
+    const card = document.getElementById('follow-ups');
+    const loading = document.getElementById('follow-up-loading');
+    if (!card) return;
+
+    if (loading) loading.remove();
+
+    const followUps = data?.follow_ups || [];
+    if (followUps.length === 0) {
+      card.appendChild(U.el('div', { className: 'text-slate text-sm', textContent: 'No follow-up suggestions available.' }));
+      return;
+    }
+
+    const chips = U.el('div', { className: 'follow-up-chips' });
+    for (const q of followUps) {
+      const chip = U.el('button', {
+        className: 'follow-up-chip',
+        textContent: q,
+        onClick: () => {
+          this.prefill(q);
+          this.startResearch();
+        },
+      });
+      chips.appendChild(chip);
+    }
+    card.appendChild(chips);
   },
 };

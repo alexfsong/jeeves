@@ -37,12 +37,24 @@ type Router struct {
 }
 
 func NewRouter(cfg config.Config) *Router {
+	ollama := NewOllama(cfg.LLM.LocalEndpoint, cfg.LLM.LocalModel)
+	// Auto-resolve model: if configured model isn't available, pick first installed one
+	ollama.ResolveModel()
+
 	r := &Router{
-		local: NewOllama(cfg.LLM.LocalEndpoint, cfg.LLM.LocalModel),
+		local: ollama,
 		cloud: NewAnthropic(cfg.LLM.CloudAPIKey, cfg.LLM.CloudModel),
 		force: cfg.LLM.ForceProvider,
 	}
 	return r
+}
+
+// LocalOllama returns the underlying Ollama provider (for model listing, etc).
+func (r *Router) LocalOllama() *Ollama {
+	if o, ok := r.local.(*Ollama); ok {
+		return o
+	}
+	return nil
 }
 
 // taskProvider returns the appropriate provider for a task.
@@ -98,4 +110,18 @@ func (r *Router) LocalAvailable() bool {
 
 func (r *Router) CloudAvailable() bool {
 	return r.cloud.Available()
+}
+
+// VerifyWithWeb routes a verification request to the cloud provider's
+// server-side web_search + web_fetch tools. Cloud-only by design — the
+// local provider has no equivalent capability.
+func (r *Router) VerifyWithWeb(ctx context.Context, req VerifyRequest) (*VerifyResponse, error) {
+	a, ok := r.cloud.(*Anthropic)
+	if !ok || a == nil {
+		return nil, fmt.Errorf("verification requires an Anthropic cloud provider")
+	}
+	if !a.Available() {
+		return nil, fmt.Errorf("anthropic API key not configured")
+	}
+	return a.CompleteWithWebTools(ctx, req)
 }

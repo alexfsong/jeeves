@@ -34,6 +34,8 @@ type braveResponse struct {
 	} `json:"web"`
 }
 
+const braveMaxCount = 20
+
 func (b *Brave) Search(ctx context.Context, query string, limit int) ([]Result, error) {
 	if b.apiKey == "" {
 		return nil, fmt.Errorf("brave API key not configured")
@@ -42,8 +44,39 @@ func (b *Brave) Search(ctx context.Context, query string, limit int) ([]Result, 
 		limit = 10
 	}
 
-	u := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&count=%d",
-		url.QueryEscape(query), limit)
+	// Brave API caps count at 20; paginate if we need more
+	var allResults []Result
+	remaining := limit
+	offset := 0
+
+	for remaining > 0 {
+		count := remaining
+		if count > braveMaxCount {
+			count = braveMaxCount
+		}
+
+		results, err := b.searchPage(ctx, query, count, offset)
+		if err != nil {
+			if len(allResults) > 0 {
+				// Return partial results if we already have some
+				break
+			}
+			return nil, err
+		}
+		allResults = append(allResults, results...)
+		if len(results) < count {
+			break // No more results available
+		}
+		remaining -= len(results)
+		offset += len(results)
+	}
+
+	return allResults, nil
+}
+
+func (b *Brave) searchPage(ctx context.Context, query string, count, offset int) ([]Result, error) {
+	u := fmt.Sprintf("https://api.search.brave.com/res/v1/web/search?q=%s&count=%d&offset=%d",
+		url.QueryEscape(query), count, offset)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", u, nil)
 	if err != nil {
@@ -74,7 +107,7 @@ func (b *Brave) Search(ctx context.Context, query string, limit int) ([]Result, 
 			Title:   r.Title,
 			URL:     r.URL,
 			Snippet: r.Description,
-			Score:   1.0 - float64(i)*0.05, // Position-based scoring
+			Score:   1.0 - float64(offset+i)*0.05,
 		})
 	}
 

@@ -12,6 +12,7 @@ type Config struct {
 	LLM      LLMConfig      `toml:"llm"`
 	Search   SearchConfig   `toml:"search"`
 	Defaults DefaultsConfig `toml:"defaults"`
+	Verify   VerifyConfig   `toml:"verify"`
 }
 
 type LLMConfig struct {
@@ -35,6 +36,19 @@ type DefaultsConfig struct {
 	Resolution string `toml:"resolution"`
 }
 
+// VerifyConfig controls the optional post-synthesis verification pass that
+// invokes Anthropic's native web_search / web_fetch tools to verify claims
+// and fill gaps in the synthesis. Cloud-only, opt-in, strictly budgeted.
+type VerifyConfig struct {
+	Enabled        bool     `toml:"enabled"`
+	MaxSearchUses  int      `toml:"max_search_uses"`
+	MaxFetchUses   int      `toml:"max_fetch_uses"`
+	MaxNewSources  int      `toml:"max_new_sources"`
+	MaxTokens      int      `toml:"max_tokens"`
+	AllowedDomains []string `toml:"allowed_domains"`
+	BlockedDomains []string `toml:"blocked_domains"`
+}
+
 func DefaultConfig() Config {
 	return Config{
 		LLM: LLMConfig{
@@ -49,6 +63,13 @@ func DefaultConfig() Config {
 		},
 		Defaults: DefaultsConfig{
 			Resolution: "brief",
+		},
+		Verify: VerifyConfig{
+			Enabled:       false,
+			MaxSearchUses: 3,
+			MaxFetchUses:  3,
+			MaxNewSources: 5,
+			MaxTokens:     2048,
 		},
 	}
 }
@@ -88,6 +109,11 @@ func Load() (Config, error) {
 		if cfg.Search.TavilyAPIKey == "" {
 			cfg.Search.TavilyAPIKey = os.Getenv("TAVILY_API_KEY")
 		}
+		if !cfg.Verify.Enabled {
+			if v := os.Getenv("JEEVES_VERIFY"); v == "1" || v == "true" {
+				cfg.Verify.Enabled = true
+			}
+		}
 	}()
 
 	data, err := os.ReadFile(path)
@@ -125,6 +151,17 @@ const defaultConfigTemplate = `# Jeeves configuration
 
 [defaults]
 # resolution = "brief"
+
+[verify]
+# Opt-in post-synthesis verification pass using Anthropic's native
+# web_search + web_fetch tools. Requires cloud LLM (Anthropic).
+# enabled = false                 # or set JEEVES_VERIFY=1 env var
+# max_search_uses = 3             # cap on web_search tool invocations
+# max_fetch_uses = 3              # cap on web_fetch tool invocations
+# max_new_sources = 5             # cap on verification-discovered sources persisted
+# max_tokens = 2048
+# allowed_domains = []            # optional whitelist (web_search + web_fetch)
+# blocked_domains = []            # optional blocklist (mutually exclusive with allowed_domains)
 `
 
 func EnsureDir() (string, bool, error) {

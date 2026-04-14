@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/alexfsong/jeeves/internal/config"
 	"github.com/alexfsong/jeeves/internal/engine"
+	"github.com/alexfsong/jeeves/internal/llm"
 	"github.com/alexfsong/jeeves/internal/resolution"
 	"github.com/alexfsong/jeeves/internal/store"
 )
@@ -17,11 +19,12 @@ import (
 type API struct {
 	store  *store.Store
 	engine *engine.Engine
+	router *llm.Router
 	cfg    config.Config
 }
 
-func New(st *store.Store, eng *engine.Engine, cfg config.Config) *API {
-	return &API{store: st, engine: eng, cfg: cfg}
+func New(st *store.Store, eng *engine.Engine, router *llm.Router, cfg config.Config) *API {
+	return &API{store: st, engine: eng, router: router, cfg: cfg}
 }
 
 func (a *API) Handler() http.Handler {
@@ -58,6 +61,21 @@ func (a *API) Handler() http.Handler {
 	// Stats & sessions
 	mux.HandleFunc("GET /api/stats", a.getStats)
 	mux.HandleFunc("GET /api/sessions", a.listSessions)
+
+	// Config & status
+	mux.HandleFunc("GET /api/status", a.getStatus)
+	mux.HandleFunc("GET /api/ollama/models", a.listOllamaModels)
+	mux.HandleFunc("PUT /api/config/model", a.setModel)
+
+	// Follow-up suggestions
+	mux.HandleFunc("POST /api/research/follow-ups", a.generateFollowUps)
+
+	// Auto-topic from research
+	mux.HandleFunc("POST /api/research/with-topic", a.researchWithAutoTopic)
+
+	// Intelligence layer
+	mux.HandleFunc("GET /api/knowledge/prior", a.priorKnowledge)
+	mux.HandleFunc("GET /api/topics/{slug}/gaps", a.gapAnalysis)
 
 	return corsMiddleware(mux)
 }
@@ -391,7 +409,7 @@ func (a *API) research(w http.ResponseWriter, r *http.Request) {
 
 	sendSSE("status", "Searching...")
 
-	result, err := a.engine.Research(r.Context(), body.Query, res, topicID)
+	result, err := a.runResearchStream(r.Context(), body.Query, res, topicID, sendSSE)
 	if err != nil {
 		sendSSE("error", err.Error())
 		return
@@ -406,6 +424,40 @@ func (a *API) research(w http.ResponseWriter, r *http.Request) {
 
 	resultJSON, _ := json.Marshal(result)
 	sendSSE("result", string(resultJSON))
+}
+
+// runResearchStream runs the engine's research pipeline with a progress
+// channel and relays each event as a `progress` SSE frame. Returns when
+// the pipeline completes.
+func (a *API) runResearchStream(
+	ctx context.Context,
+	query string,
+	res resolution.Level,
+	topicID *int64,
+	sendSSE func(event, data string),
+) (*engine.ResearchResult, error) {
+	progress := make(chan engine.ProgressEvent, 8)
+
+	type outcome struct {
+		result *engine.ResearchResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+
+	go func() {
+		result, err := a.engine.ResearchStream(ctx, query, res, topicID, progress)
+		close(progress)
+		done <- outcome{result: result, err: err}
+	}()
+
+	for ev := range progress {
+		if b, err := json.Marshal(ev); err == nil {
+			sendSSE("progress", string(b))
+		}
+	}
+
+	o := <-done
+	return o.result, o.err
 }
 
 // --- Trusted Sources ---
@@ -511,6 +563,223 @@ func (a *API) listSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonOK(w, emptySlice(sessions))
+}
+
+// --- Config & Status ---
+
+func (a *API) getStatus(w http.ResponseWriter, r *http.Request) {
+	status := map[string]any{
+		"search_provider": a.cfg.Search.Provider,
+		"brave_configured": a.cfg.Search.BraveAPIKey != "",
+		"tavily_configured": a.cfg.Search.TavilyAPIKey != "",
+		"cloud_provider":   a.cfg.LLM.CloudProvider,
+		"cloud_model":      a.cfg.LLM.CloudModel,
+		"cloud_configured": a.cfg.LLM.CloudAPIKey != "",
+		"local_provider":   a.cfg.LLM.LocalProvider,
+		"local_available":  a.router.LocalAvailable(),
+		"cloud_available":  a.router.CloudAvailable(),
+		"default_resolution": a.cfg.Defaults.Resolution,
+		"verify_enabled":     a.cfg.Verify.Enabled,
+	}
+
+	if ollama := a.router.LocalOllama(); ollama != nil {
+		status["local_model"] = ollama.Model()
+		status["local_endpoint"] = ollama.Endpoint()
+	}
+
+	jsonOK(w, status)
+}
+
+func (a *API) listOllamaModels(w http.ResponseWriter, r *http.Request) {
+	ollama := a.router.LocalOllama()
+	if ollama == nil {
+		jsonOK(w, []string{})
+		return
+	}
+
+	models, err := ollama.ListModels()
+	if err != nil {
+		jsonOK(w, map[string]any{
+			"models": []string{},
+			"error":  err.Error(),
+		})
+		return
+	}
+	jsonOK(w, map[string]any{"models": models})
+}
+
+func (a *API) setModel(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Model string `json:"model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Model == "" {
+		jsonError(w, "model is required", http.StatusBadRequest)
+		return
+	}
+
+	ollama := a.router.LocalOllama()
+	if ollama == nil {
+		jsonError(w, "ollama not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	ollama.SetModel(body.Model)
+	jsonOK(w, map[string]string{"status": "ok", "model": body.Model})
+}
+
+// --- Follow-up suggestions ---
+
+func (a *API) generateFollowUps(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Query     string `json:"query"`
+		Synthesis string `json:"synthesis"`
+		TopicSlug string `json:"topic_slug"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	followUps, err := a.engine.GenerateFollowUps(r.Context(), body.Query, body.Synthesis)
+	if err != nil {
+		// Fallback: return empty rather than error
+		jsonOK(w, map[string]any{"follow_ups": []string{}})
+		return
+	}
+
+	jsonOK(w, map[string]any{"follow_ups": followUps})
+}
+
+// --- Research with auto-topic creation ---
+
+func (a *API) researchWithAutoTopic(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Query      string `json:"query"`
+		Resolution string `json:"resolution"`
+		TopicName  string `json:"topic_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	if body.Query == "" {
+		jsonError(w, "query is required", http.StatusBadRequest)
+		return
+	}
+
+	resStr := body.Resolution
+	if resStr == "" {
+		resStr = "detailed"
+	}
+	res, err := resolution.Parse(resStr)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Auto-create topic from the query if no name given
+	topicName := body.TopicName
+	if topicName == "" {
+		topicName = body.Query
+		if len(topicName) > 60 {
+			topicName = topicName[:60]
+		}
+	}
+
+	var topicID *int64
+	topic, err := a.store.CreateTopic(topicName, "Auto-created from research")
+	if err != nil {
+		// Might already exist with this slug, try to find it
+		existing, findErr := a.store.FindTopicByName(topicName)
+		if findErr == nil && existing != nil {
+			topicID = &existing.ID
+		}
+	} else {
+		topicID = &topic.ID
+	}
+
+	// SSE stream
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		jsonError(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	sendSSE := func(event, data string) {
+		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+		flusher.Flush()
+	}
+
+	sendSSE("status", "Researching...")
+
+	result, err := a.runResearchStream(r.Context(), body.Query, res, topicID, sendSSE)
+	if err != nil {
+		sendSSE("error", err.Error())
+		return
+	}
+
+	if a.store != nil {
+		a.store.LogSession(topicID, body.Query, res.String(), len(result.Results))
+	}
+
+	// Include topic info in response
+	type richResult struct {
+		*engine.ResearchResult
+		TopicID   *int64 `json:"topic_id,omitempty"`
+		TopicName string `json:"topic_name,omitempty"`
+		TopicSlug string `json:"topic_slug,omitempty"`
+	}
+	rr := richResult{ResearchResult: result, TopicID: topicID}
+	if topic != nil {
+		rr.TopicName = topic.Name
+		rr.TopicSlug = topic.Slug
+	}
+
+	sendSSE("status", "Complete")
+	resultJSON, _ := json.Marshal(rr)
+	sendSSE("result", string(resultJSON))
+}
+
+// --- Intelligence layer ---
+
+func (a *API) priorKnowledge(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		jsonError(w, "q parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	prior, err := a.engine.PriorKnowledge(r.Context(), q)
+	if err != nil {
+		jsonOK(w, map[string]any{"entries": []any{}, "count": 0})
+		return
+	}
+
+	jsonOK(w, map[string]any{
+		"entries": emptySlice(prior),
+		"count":   len(prior),
+	})
+}
+
+func (a *API) gapAnalysis(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	topic, err := a.store.GetTopicBySlug(slug)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	analysis, err := a.engine.GapAnalysis(r.Context(), topic.ID)
+	if err != nil {
+		jsonError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	jsonOK(w, map[string]string{"analysis": analysis})
 }
 
 // --- Helpers ---

@@ -299,7 +299,232 @@ tr:hover td {
   margin: 8px 0;
 }
 
-/* Research */
+/* Research — guided flow */
+.research-hero {
+  margin-bottom: 16px;
+}
+
+.research-card {
+  padding: 24px;
+}
+
+.research-query-input {
+  width: 100%;
+  font-size: 16px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--cream);
+  border-radius: 6px;
+}
+
+.research-query-input:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(201,168,76,0.15);
+}
+
+.research-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* Resolution selector — pill buttons */
+.resolution-group {
+  display: flex;
+  gap: 4px;
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 3px;
+}
+
+.res-btn {
+  background: none;
+  border: none;
+  color: var(--slate);
+  font-family: var(--font);
+  padding: 6px 14px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s;
+}
+
+.res-btn:hover {
+  color: var(--cream);
+  background: rgba(255,255,255,0.05);
+}
+
+.res-btn-active {
+  color: var(--gold);
+  background: rgba(201,168,76,0.15);
+}
+
+.res-btn-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.res-btn-desc {
+  display: block;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.research-go-btn {
+  padding: 10px 24px;
+  font-size: 14px;
+}
+
+/* Research trail */
+.research-trail {
+  padding: 12px 20px;
+}
+
+/* Progress spinner */
+.research-progress {
+  text-align: center;
+  padding: 48px;
+}
+
+.research-spinner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.spinner-ring {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--gold);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Synthesis card */
+.synthesis-card {
+  border-left: 3px solid var(--gold);
+}
+
+/* Verification stage pill (shown during research) */
+.stage-pill {
+  font-size: 11px;
+  color: var(--slate);
+  background: rgba(201,168,76,0.08);
+  border: 1px solid rgba(201,168,76,0.25);
+  border-radius: 999px;
+  padding: 2px 10px;
+  letter-spacing: 0.02em;
+  min-height: 18px;
+  min-width: 80px;
+  text-align: center;
+}
+
+.stage-pill:empty {
+  display: none;
+}
+
+/* Verified badge shown on synthesis card when verification ran */
+.verified-badge {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--success-green);
+  background: rgba(46,164,79,0.08);
+  border: 1px solid rgba(46,164,79,0.3);
+  border-radius: 999px;
+  padding: 2px 10px;
+  margin: 0 20px 12px;
+  letter-spacing: 0.02em;
+}
+
+/* Small "Verified" chip alongside a source title */
+.verified-chip {
+  font-size: 10px;
+  color: var(--success-green);
+  background: rgba(46,164,79,0.1);
+  border: 1px solid rgba(46,164,79,0.35);
+  border-radius: 4px;
+  padding: 1px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Persist indicator */
+.persist-indicator {
+  padding: 12px 20px;
+  border-left: 3px solid var(--success-green);
+}
+
+/* Follow-up chips */
+.follow-up-card {
+  border-left: 3px solid var(--slate);
+}
+
+.follow-up-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.follow-up-chip {
+  background: rgba(201,168,76,0.08);
+  border: 1px solid rgba(201,168,76,0.3);
+  color: var(--cream);
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+  line-height: 1.4;
+}
+
+.follow-up-chip:hover {
+  background: rgba(201,168,76,0.2);
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+/* Source items */
+.source-item {
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(37,53,83,0.5);
+}
+
+.source-item:last-child {
+  border-bottom: none;
+}
+
+.sources-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Prior knowledge indicator */
+.prior-knowledge-card {
+  border-left: 3px solid #6495ED;
+  padding: 12px 20px;
+}
+
+/* Research warnings */
+.research-warnings {
+  border-left: 3px solid var(--error-red);
+  padding: 12px 20px;
+}
+
+/* Legacy support */
 .research-input {
   display: flex;
   gap: 8px;
@@ -442,6 +667,14 @@ tr:hover td {
   text-align: center;
   padding: 48px 24px;
   color: var(--slate);
+}
+
+/* Gap analysis */
+.gap-analysis {
+  background: rgba(100,149,237,0.06);
+  border: 1px solid rgba(100,149,237,0.2);
+  border-radius: 6px;
+  padding: 16px;
 }
 
 /* Responsive */

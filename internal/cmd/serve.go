@@ -49,9 +49,14 @@ var serveCmd = &cobra.Command{
 		router := llm.NewRouter(cfg)
 		wiki := source.NewWikiSource(st)
 		fetcher := source.NewFetcher()
-		eng := engine.New(search, wiki, fetcher, router, st)
+		eng := engine.New(search, wiki, fetcher, router, st, cfg.Verify)
 
-		a := api.New(st, eng, cfg)
+		// Warn if verification is enabled — tools incur separate metered charges.
+		if cfg.Verify.Enabled {
+			r.Warn("Verification pass is enabled. Web search and web_fetch tools incur separate charges (~$0.06/query). Disable with verify.enabled=false in ~/.jeeves/config.toml or unset JEEVES_VERIFY.")
+		}
+
+		a := api.New(st, eng, router, cfg)
 
 		handler := a.HandlerWithStatic(web.Static())
 

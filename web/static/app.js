@@ -2,11 +2,16 @@
 const App = {
   currentTab: 'overview',
   topics: [],
+  systemStatus: null,
 
-  init() {
+  async init() {
     this.bindTabs();
-    this.navigate('overview');
     this.loadTopics();
+
+    // Load system status to decide initial view
+    this.systemStatus = await API.get('/api/status');
+    const ready = this.systemStatus && (this.systemStatus.brave_configured || this.systemStatus.local_available);
+    this.navigate(ready ? 'research' : 'setup');
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (e) => {
@@ -14,6 +19,7 @@ const App = {
       if (e.key === '/') { e.preventDefault(); this.navigate('knowledge'); }
       if (e.key === 'r') { e.preventDefault(); this.navigate('research'); }
       if (e.key === 'g') { e.preventDefault(); this.navigate('graph'); }
+      if (e.key === '?') { e.preventDefault(); this.navigate('setup'); }
     });
   },
 
@@ -40,6 +46,7 @@ const App = {
       case 'topics': Topics.render(app); break;
       case 'trusted': TrustedSources.render(app); break;
       case 'history': History.render(app); break;
+      case 'setup': Setup.render(app); break;
     }
   },
 
@@ -65,6 +72,21 @@ const API = {
     try {
       const res = await fetch(url, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    } catch (e) {
+      console.error('API error:', e);
+      return null;
+    }
+  },
+
+  async put(url, data) {
+    try {
+      const res = await fetch(url, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });

@@ -39,6 +39,59 @@ func (o *Ollama) Available() bool {
 	return resp.StatusCode == 200
 }
 
+// ListModels returns the names of all models available in Ollama.
+func (o *Ollama) ListModels() ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, "GET", o.endpoint+"/api/tags", nil)
+	resp, err := o.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ollama not reachable: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var tags struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil {
+		return nil, err
+	}
+
+	names := make([]string, len(tags.Models))
+	for i, m := range tags.Models {
+		names[i] = m.Name
+	}
+	return names, nil
+}
+
+// ResolveModel checks if the configured model exists. If not, picks the first
+// available model. Returns the resolved model name and whether a fallback was used.
+func (o *Ollama) ResolveModel() (string, bool) {
+	models, err := o.ListModels()
+	if err != nil || len(models) == 0 {
+		return o.model, false
+	}
+
+	for _, m := range models {
+		if m == o.model {
+			return o.model, false
+		}
+	}
+
+	// Configured model not found — use first available
+	o.model = models[0]
+	return models[0], true
+}
+
+func (o *Ollama) Model() string { return o.model }
+
+func (o *Ollama) SetModel(model string) { o.model = model }
+
+func (o *Ollama) Endpoint() string { return o.endpoint }
+
 type ollamaRequest struct {
 	Model  string `json:"model"`
 	Prompt string `json:"prompt"`

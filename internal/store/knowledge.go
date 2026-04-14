@@ -9,10 +9,11 @@ import (
 type KnowledgeType string
 
 const (
-	KnowledgeFinding   KnowledgeType = "finding"
-	KnowledgeSynthesis KnowledgeType = "synthesis"
-	KnowledgeSource    KnowledgeType = "source"
-	KnowledgeNote      KnowledgeType = "note"
+	KnowledgeFinding        KnowledgeType = "finding"
+	KnowledgeSynthesis      KnowledgeType = "synthesis"
+	KnowledgeSource         KnowledgeType = "source"
+	KnowledgeVerifiedSource KnowledgeType = "verified_source"
+	KnowledgeNote           KnowledgeType = "note"
 )
 
 type Knowledge struct {
